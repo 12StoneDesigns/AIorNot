@@ -1,3 +1,11 @@
+/**
+ * AIorNOT Server - Backend API for AI content detection
+ * 
+ * @author T. Landon Love <12stonedesigns@gmail.com>
+ * @copyright Copyright (c) 2024 T. Landon Love
+ * @license MIT
+ */
+
 import express from 'express';
 import cors from 'cors';
 import axios from 'axios';

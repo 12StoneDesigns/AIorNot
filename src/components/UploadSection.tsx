@@ -1,3 +1,11 @@
+/**
+ * UploadSection Component - Handles media upload and analysis
+ * 
+ * @author T. Landon Love <12stonedesigns@gmail.com>
+ * @copyright Copyright (c) 2024 T. Landon Love
+ * @license MIT
+ */
+
 import React, { useState, useEffect, useRef } from 'react';
 import * as tf from '@tensorflow/tfjs';
 import 'ldrs/quantum';

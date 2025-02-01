@@ -1,3 +1,11 @@
+/**
+ * ResultsSection Component - Displays analysis results and confidence scores
+ * 
+ * @author T. Landon Love <12stonedesigns@gmail.com>
+ * @copyright Copyright (c) 2024 T. Landon Love
+ * @license MIT
+ */
+
 import React from 'react';
 import { X } from 'lucide-react';
 import './ResultsSection.css';

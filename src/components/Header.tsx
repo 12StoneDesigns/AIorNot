@@ -1,3 +1,11 @@
+/**
+ * Header Component - Main navigation header for AIorNOT
+ * 
+ * @author T. Landon Love <12stonedesigns@gmail.com>
+ * @copyright Copyright (c) 2024 T. Landon Love
+ * @license MIT
+ */
+
 import { Brain, Upload, History, User, Settings } from 'lucide-react';
 
 interface HeaderProps {
