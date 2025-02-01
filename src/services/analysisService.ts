@@ -8,61 +8,50 @@
 
 import * as tf from '@tensorflow/tfjs';
 import { loadGraphModel } from '@tensorflow/tfjs-converter';
-import { createFFmpeg, fetchFile } from '@ffmpeg/ffmpeg';
+import { FFmpeg } from '@ffmpeg/ffmpeg';
+import { fetchFile } from '@ffmpeg/util';
 import * as exifr from 'exifr';
 
 // Initialize FFmpeg for video processing
-const ffmpeg = createFFmpeg({ log: true });
+const ffmpeg = new FFmpeg();
+let ffmpegLoaded = false;
+
+// Load FFmpeg
+const loadFFmpeg = async () => {
+  if (!ffmpegLoaded) {
+    await ffmpeg.load();
+    ffmpegLoaded = true;
+  }
+};
 
 // Models for different aspects of detection
 interface Models {
   patternDetector: tf.GraphModel;
   artifactAnalyzer: tf.GraphModel;
-  metadataAnalyzer: tf.GraphModel;
   frequencyAnalyzer: tf.GraphModel;
 }
 
 let models: Models | null = null;
 
-// Enhanced model configuration with evaluation metrics
-const loadModels = async () => {
-  if (!models) {
+// Function to load all models
+async function loadModels(): Promise<void> {
+  if (models) return; // Only load once
+  
+  try {
+    const patternModel = await loadGraphModel('/models/pattern_detector/model.json');
+    const artifactModel = await loadGraphModel('/models/artifact_analyzer/model.json');
+    const frequencyModel = await loadGraphModel('/models/frequency_analyzer/model.json');
+
     models = {
-      // Pattern detection model
-      patternDetector: {
-        model: await loadGraphModel('/models/pattern_detector/model.json'),
-        accuracy: 0.92, // Accuracy on validation set
-        precision: 0.91,
-        recall: 0.93
-      },
-      
-      // GAN artifact analysis model
-      artifactAnalyzer: {
-        model: await loadGraphModel('/models/artifact_analyzer/model.json'),
-        accuracy: 0.89,
-        precision: 0.88,
-        recall: 0.90
-      },
-      
-      // Metadata consistency checker
-      metadataAnalyzer: {
-        model: await loadGraphModel('/models/metadata_analyzer/model.json'),
-        accuracy: 0.95,
-        precision: 0.94,
-        recall: 0.96
-      },
-      
-      // Frequency domain analysis model
-      frequencyAnalyzer: {
-        model: await loadGraphModel('/models/frequency_analyzer/model.json'),
-        accuracy: 0.90,
-        precision: 0.89,
-        recall: 0.91
-      }
+      patternDetector: patternModel,
+      artifactAnalyzer: artifactModel,
+      frequencyAnalyzer: frequencyModel
     };
+  } catch (error) {
+    console.error('Error loading models:', error);
+    throw error;
   }
-  return models;
-};
+}
 
 // Evaluation metrics tracking
 interface EvaluationMetrics {
@@ -80,42 +69,54 @@ let evaluationMetrics: EvaluationMetrics = {
 };
 
 // Function to update evaluation metrics
-const updateEvaluationMetrics = (prediction: boolean, actual: boolean) => {
+function updateEvaluationMetrics(prediction: boolean, actual: boolean): void {
   if (prediction && actual) evaluationMetrics.truePositives++;
   else if (prediction && !actual) evaluationMetrics.falsePositives++;
   else if (!prediction && !actual) evaluationMetrics.trueNegatives++;
   else evaluationMetrics.falseNegatives++;
-};
-
-// Function to calculate accuracy metrics
-const calculateAccuracyMetrics = () => {
-  const total = evaluationMetrics.truePositives + evaluationMetrics.falsePositives +
-                evaluationMetrics.trueNegatives + evaluationMetrics.falseNegatives;
-  
-  return {
-    accuracy: (evaluationMetrics.truePositives + evaluationMetrics.trueNegatives) / total,
-    precision: evaluationMetrics.truePositives / (evaluationMetrics.truePositives + evaluationMetrics.falsePositives),
-    recall: evaluationMetrics.truePositives / (evaluationMetrics.truePositives + evaluationMetrics.falseNegatives),
-    f1Score: 2 * (evaluationMetrics.truePositives) / 
-             (2 * evaluationMetrics.truePositives + evaluationMetrics.falsePositives + evaluationMetrics.falseNegatives)
-  };
-};
+}
 
 // Convert image to frequency domain for analysis
-const getFrequencyDomain = (tensor: tf.Tensor3D) => {
-  // Convert to grayscale
-  const grayscale = tf.mean(tensor, -1);
+async function getFrequencyDomain(tensor: tf.Tensor3D): Promise<tf.Tensor> {
+  // Convert to grayscale if not already
+  const grayscale = tensor.mean(2, true);
   
-  // Apply FFT
-  const complexTensor = tf.complex(grayscale, tf.zeros(grayscale.shape));
-  const fft = tf.spectral.fft2d(complexTensor);
+  // Perform FFT using real FFT
+  const realFFT = tf.spectral.rfft(grayscale.squeeze(), grayscale.shape[0]);
   
   // Get magnitude spectrum
-  const magnitude = tf.abs(fft);
+  const magnitudeSpectrum = tf.abs(realFFT);
   
-  // Shift DC component to center
-  return tf.image.fftShift(magnitude);
-};
+  // Normalize and return
+  return tf.div(magnitudeSpectrum, tf.max(magnitudeSpectrum));
+}
+
+// Analysis functions with null checks and proper tensor data extraction
+async function analyzePatterns(tensor: tf.Tensor): Promise<number[]> {
+  if (!models?.patternDetector) throw new Error('Pattern detector model not loaded');
+  const prediction = models.patternDetector.predict(tensor) as tf.Tensor;
+  const data = await prediction.data();
+  prediction.dispose();
+  return Array.from(data);
+}
+
+async function analyzeArtifacts(tensor: tf.Tensor): Promise<number[]> {
+  if (!models?.artifactAnalyzer) throw new Error('Artifact analyzer model not loaded');
+  const prediction = models.artifactAnalyzer.predict(tensor) as tf.Tensor;
+  const data = await prediction.data();
+  prediction.dispose();
+  return Array.from(data);
+}
+
+async function analyzeFrequencyDomain(tensor: tf.Tensor): Promise<number[]> {
+  if (!models?.frequencyAnalyzer) throw new Error('Frequency analyzer model not loaded');
+  const freqDomain = await getFrequencyDomain(tensor as tf.Tensor3D);
+  const prediction = models.frequencyAnalyzer.predict(freqDomain) as tf.Tensor;
+  const data = await prediction.data();
+  prediction.dispose();
+  freqDomain.dispose();
+  return Array.from(data);
+}
 
 const extractMetadata = async (file: File) => {
   try {
@@ -163,135 +164,72 @@ const preprocessImage = async (imageData: ImageData | HTMLImageElement): Promise
   return tf.stack(normalized);
 };
 
-const analyzePatterns = async (tensor: tf.Tensor) => {
-  const { patternDetector } = await loadModels();
-  const predictions = await patternDetector.predict(tensor) as tf.Tensor;
-  return await predictions.data();
-};
-
-const analyzeArtifacts = async (tensor: tf.Tensor) => {
-  const { artifactAnalyzer } = await loadModels();
-  const predictions = await artifactAnalyzer.predict(tensor) as tf.Tensor;
-  return await predictions.data();
-};
-
-const analyzeFrequencyDomain = async (tensor: tf.Tensor) => {
-  const { frequencyAnalyzer } = await loadModels();
-  const frequencyTensor = getFrequencyDomain(tensor as tf.Tensor3D);
-  const predictions = await frequencyAnalyzer.predict(frequencyTensor) as tf.Tensor;
-  return await predictions.data();
-};
-
-// Enhanced model weights based on individual performance
-const MODEL_WEIGHTS = {
-  patternDetector: 0.3,
-  artifactAnalyzer: 0.25,
-  metadataAnalyzer: 0.2,
-  frequencyAnalyzer: 0.25
-};
-
-// Confidence thresholds for different detection methods
-const CONFIDENCE_THRESHOLDS = {
-  pattern: 0.85,
-  artifact: 0.80,
-  metadata: 0.90,
-  frequency: 0.85,
-  ensemble: 0.85
+const createImageElement = async (file: File): Promise<HTMLImageElement> => {
+  const img = new Image();
+  const imageUrl = URL.createObjectURL(file);
+  await new Promise((resolve) => {
+    img.onload = resolve;
+    img.src = imageUrl;
+  });
+  return img;
 };
 
 const analyzeImage = async (file: File, groundTruth?: boolean) => {
   try {
+    await loadModels(); // Ensure models are loaded
+
     // Create image element
-    const img = new Image();
-    const imageUrl = URL.createObjectURL(file);
-    await new Promise((resolve) => {
-      img.onload = resolve;
-      img.src = imageUrl;
-    });
+    const img = await createImageElement(file);
+    
+    // Convert to tensor
+    const tensor = await preprocessImage(img);
+    
+    // Get predictions from each model
+    const [patternScores, artifactScores, frequencyScores] = await Promise.all([
+      analyzePatterns(tensor),
+      analyzeArtifacts(tensor),
+      analyzeFrequencyDomain(tensor)
+    ]);
 
     // Extract metadata
-    const { hasAISignature, metadata } = await extractMetadata(file);
-
-    // Preprocess image
-    const preprocessed = await preprocessImage(img);
-    
-    // Run different analyses in parallel
-    const [
-      patternScores,
-      artifactScores,
-      frequencyScores
-    ] = await Promise.all([
-      analyzePatterns(preprocessed),
-      analyzeArtifacts(preprocessed),
-      analyzeFrequencyDomain(preprocessed)
-    ]);
+    const metadata = await extractMetadata(file);
+    const hasAISignature = metadata?.hasAISignature || false;
 
     // Calculate weighted ensemble score
     const ensembleScore = 
-      patternScores[0] * MODEL_WEIGHTS.patternDetector +
-      artifactScores[0] * MODEL_WEIGHTS.artifactAnalyzer +
-      (hasAISignature ? 1 : 0) * MODEL_WEIGHTS.metadataAnalyzer +
-      frequencyScores[0] * MODEL_WEIGHTS.frequencyAnalyzer;
+      patternScores[0] * 0.3 +
+      artifactScores[0] * 0.25 +
+      (hasAISignature ? 1 : 0) * 0.2 +
+      frequencyScores[0] * 0.25;
 
-    // Determine confidence levels for each method
-    const confidenceLevels = {
-      pattern: patternScores[0] > CONFIDENCE_THRESHOLDS.pattern,
-      artifact: artifactScores[0] > CONFIDENCE_THRESHOLDS.artifact,
-      metadata: hasAISignature,
-      frequency: frequencyScores[0] > CONFIDENCE_THRESHOLDS.frequency
-    };
-
-    // Final decision based on ensemble score and confidence thresholds
-    const isAIGenerated = ensembleScore > CONFIDENCE_THRESHOLDS.ensemble;
+    // Final decision based on ensemble score
+    const isAIGenerated = ensembleScore > 0.85;
 
     // Update evaluation metrics if ground truth is provided
     if (groundTruth !== undefined) {
       updateEvaluationMetrics(isAIGenerated, groundTruth);
     }
 
+    // Cleanup tensors
+    tensor.dispose();
+
     return {
       isAIGenerated,
-      confidenceScore: ensembleScore,
-      metadata: {
-        resolution: `${img.width}x${img.height}`,
-        format: file.type.split('/')[1].toUpperCase(),
-        size: `${(file.size / (1024 * 1024)).toFixed(2)} MB`
-      },
-      detectionMethods: [
-        {
-          name: 'Pattern Analysis',
-          score: patternScores[0],
-          details: [{
-            technique: 'Deep Neural Network',
-            explanation: `Pattern detection confidence: ${(patternScores[0] * 100).toFixed(1)}%`
-          }]
-        },
-        {
-          name: 'Artifact Detection',
-          score: artifactScores[0],
-          details: [{
-            technique: 'GAN Artifact Analysis',
-            explanation: `Artifact detection confidence: ${(artifactScores[0] * 100).toFixed(1)}%`
-          }]
-        },
-        {
-          name: 'Metadata Analysis',
-          score: hasAISignature ? 1 : 0,
-          details: [{
-            technique: 'EXIF Analysis',
-            explanation: hasAISignature ? 'AI tool signature detected' : 'No AI tool signature found'
-          }]
-        },
-        {
-          name: 'Frequency Analysis',
-          score: frequencyScores[0],
-          details: [{
-            technique: 'FFT Analysis',
-            explanation: `Frequency domain anomalies confidence: ${(frequencyScores[0] * 100).toFixed(1)}%`
-          }]
+      confidence: ensembleScore,
+      details: {
+        patternScore: patternScores[0],
+        artifactScore: artifactScores[0],
+        metadataScore: hasAISignature ? 1 : 0,
+        frequencyScore: frequencyScores[0],
+        confidenceLevels: {
+          pattern: patternScores[0] > 0.85,
+          artifact: artifactScores[0] > 0.80,
+          metadata: hasAISignature,
+          frequency: frequencyScores[0] > 0.85
         }
-      ]
+      }
     };
+
   } catch (error) {
     console.error('Error analyzing image:', error);
     throw error;
@@ -300,36 +238,36 @@ const analyzeImage = async (file: File, groundTruth?: boolean) => {
 
 const analyzeVideo = async (videoFile: File, groundTruth?: boolean) => {
   try {
-    if (!ffmpeg.isLoaded()) {
-      await ffmpeg.load();
-    }
-
-    // Extract frames from video
-    ffmpeg.FS('writeFile', 'input.mp4', await fetchFile(videoFile));
-    await ffmpeg.run('-i', 'input.mp4', '-vf', 'fps=1', 'frame-%d.jpg');
+    await loadFFmpeg();
     
-    const frames = [];
-    let frameNum = 1;
+    const inputFileName = 'input.mp4';
+    const outputFileName = 'frame_%d.jpg';
     
-    while (true) {
-      try {
-        const frameData = ffmpeg.FS('readFile', `frame-${frameNum}.jpg`);
-        frames.push(frameData);
-        frameNum++;
-      } catch {
-        break;
-      }
-    }
-
-    // Analyze each frame
-    const frameAnalyses = await Promise.all(frames.map(async (frameData) => {
+    // Write video file to FFmpeg's virtual file system
+    await ffmpeg.writeFile(inputFileName, await fetchFile(videoFile));
+    
+    // Extract frames
+    await ffmpeg.exec([
+      '-i', inputFileName,
+      '-vf', 'fps=1',
+      '-frame_pts', '1',
+      outputFileName
+    ]);
+    
+    // Read frames and analyze
+    const frames = await ffmpeg.listDir('.');
+    const frameFiles = frames.filter(f => f.name.startsWith('frame_'));
+    
+    // Process each frame...
+    const frameAnalyses = await Promise.all(frameFiles.map(async (frameFile) => {
+      const frameData = await ffmpeg.readFile(frameFile.name);
       const blob = new Blob([frameData], { type: 'image/jpeg' });
       const file = new File([blob], 'frame.jpg', { type: 'image/jpeg' });
       return analyzeImage(file);
     }));
 
     // Calculate temporal consistency
-    const temporalScores = frameAnalyses.map(analysis => analysis.confidenceScore);
+    const temporalScores = frameAnalyses.map(analysis => analysis.confidence);
     const temporalConsistency = calculateTemporalConsistency(temporalScores);
 
     // Calculate weighted ensemble score for video
@@ -343,7 +281,7 @@ const analyzeVideo = async (videoFile: File, groundTruth?: boolean) => {
       video.src = URL.createObjectURL(videoFile);
     });
 
-    const isAIGenerated = finalScore > CONFIDENCE_THRESHOLDS.ensemble;
+    const isAIGenerated = finalScore > 0.85;
 
     // Update evaluation metrics if ground truth is provided
     if (groundTruth !== undefined) {
@@ -352,7 +290,7 @@ const analyzeVideo = async (videoFile: File, groundTruth?: boolean) => {
 
     return {
       isAIGenerated,
-      confidenceScore: finalScore,
+      confidence: finalScore,
       metadata: {
         format: videoFile.type.split('/')[1].toUpperCase(),
         size: `${(videoFile.size / (1024 * 1024)).toFixed(2)} MB`,
