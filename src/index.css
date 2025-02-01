@@ -1,0 +1,78 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-[#0a0a0a] text-gray-300;
+  }
+}
+
+@layer components {
+  .btn-primary {
+    @apply bg-gradient-to-r from-green-500 to-blue-600 hover:from-green-400 hover:to-blue-500 text-white 
+           px-6 py-2.5 rounded-lg font-medium
+           shadow-lg shadow-green-500/20
+           transition-all duration-200 ease-out
+           hover:shadow-green-500/30 hover:scale-[1.02];
+  }
+  
+  .btn-secondary {
+    @apply bg-gradient-to-br from-[#111111] to-[#1a1a1a] text-gray-300
+           px-6 py-2.5 rounded-lg font-medium
+           border border-green-500/20
+           transition-all duration-200 ease-out
+           hover:border-green-500/30;
+  }
+  
+  .card {
+    @apply bg-gradient-to-br from-[#111111] to-[#1a1a1a]
+           rounded-xl
+           border border-gray-800/30
+           shadow-lg shadow-black/10;
+  }
+  
+  .input {
+    @apply bg-[#111111] text-gray-300
+           border border-gray-800/50
+           rounded-lg px-4 py-2.5
+           focus:ring-2 focus:ring-green-500/30 focus:border-green-500/50
+           transition-all duration-200
+           placeholder-gray-500;
+  }
+
+  .nav-item {
+    @apply px-4 py-2 rounded-lg text-sm font-medium
+           transition-all duration-200
+           text-gray-400 hover:text-gray-300
+           hover:bg-gray-800/50;
+  }
+
+  .nav-item-active {
+    @apply bg-gradient-to-br from-green-500/10 to-blue-600/10 text-green-400 border-green-500/20;
+  }
+
+  .main-container {
+    @apply max-w-6xl mx-auto px-4 py-8 space-y-8;
+  }
+
+  .section-title {
+    @apply text-2xl font-bold text-gray-300;
+  }
+
+  .text-gradient {
+    @apply bg-gradient-to-r from-green-500 to-blue-600 
+           text-transparent bg-clip-text;
+  }
+}
+
+@layer utilities {
+  @keyframes pulse-subtle {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.95; }
+  }
+
+  .animate-pulse-subtle {
+    animation: pulse-subtle 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  }
+}

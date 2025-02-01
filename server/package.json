@@ -1,0 +1,23 @@
+{
+  "name": "aiornot-server",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "@tensorflow/tfjs-node": "^4.22.0",
+    "@xenova/transformers": "^2.8.0",
+    "axios": "^1.6.2",
+    "cors": "^2.8.5",
+    "dotenv": "^16.3.1",
+    "express": "^4.18.2",
+    "fluent-ffmpeg": "^2.1.2",
+    "multer": "^1.4.5-lts.1",
+    "ytdl-core": "git+https://github.com/khlevon/node-ytdl-core.git#v4.11.4-patch.2"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.2"
+  }
+}
