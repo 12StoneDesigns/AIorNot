@@ -1,9 +1,11 @@
 {
-  "name": "vite-react-typescript-starter",
+  "name": "aior-not",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.0.0",
   "type": "module",
-  "homepage": "https://AetheriumLabs-stack.github.io/AIorNOT",
+  "description": "An innovative platform that uses advanced machine learning to determine whether media content is AI-generated or human-created",
+  "author": "T. Landon Love <12stonedesigns@gmail.com>",
+  "homepage": "https://github.com/12StoneDesigns/AIorNot",
   "scripts": {
     "dev": "vite",
     "build": "vite build",

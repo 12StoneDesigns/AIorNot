@@ -1,3 +1,11 @@
+/**
+ * AIorNOT - AI Content Detection Platform
+ * 
+ * @author T. Landon Love <12stonedesigns@gmail.com>
+ * @copyright Copyright (c) 2024 T. Landon Love
+ * @license MIT
+ */
+
 import React, { useState } from 'react';
 import { SettingsProvider } from './contexts/SettingsContext';
 import Header from './components/Header';
